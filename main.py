@@ -5,6 +5,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, mean_absolute_percentage_error
 import xgboost as xgb
 from rename import rename_map
+from sklearn.model_selection import RandomizedSearchCV
 
 
 # ── 평가 함수 (y_orig_train을 인자로 명시적으로 받음) ──────────────────────────
@@ -95,6 +96,7 @@ df_final = pd.get_dummies(df_model, columns=['House_Type', 'Rent_Type', 'Orienta
 
 baseline_cols = ['House_Type_Other_House', 'Rent_Type_Monthly', 'Orientation_Unknown']
 df_final = df_final.drop(columns=[c for c in baseline_cols if c in df_final.columns])
+df_final.to_csv('final_data.csv', sep=',', na_rep='NaN')
 
 print("\n최종 피처 수:", df_final.shape[1] - 1)  # Price_Hwansan 제외
 print("Orientation 관련 피처:", [c for c in df_final.columns if 'Orientation' in c])
@@ -110,7 +112,26 @@ X_train, X_test, y_log_train, y_log_test, y_orig_train, y_orig_test = train_test
 
 # ── 9. RandomForestRegressor ───────────────────────────────────────────────────
 print("\n--- RandomForestRegressor 모델 학습 및 평가 ---")
+param_dist = {
+    'n_estimators': [300, 500, 800],
+    'max_depth': [None, 5, 10, 15],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4],
+    'max_features': ['sqrt', 'log2']
+}
 rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
+random_search = RandomizedSearchCV(
+    rf_model,
+    param_distributions=param_dist,
+    n_iter=20,
+    cv=5,
+    scoring='neg_root_mean_squared_error',
+    n_jobs=-1,
+    random_state=42
+)
+random_search.fit(X_train, y_log_train)
+params = random_search.best_params_
+rf_model = RandomForestRegressor(n_estimators=params['n_estimators'], random_state=42, min_samples_split=params['min_samples_split'], min_samples_leaf=params['min_samples_leaf'], max_features=params['max_features'], max_depth=params['max_depth'])
 rf_model.fit(X_train, y_log_train)
 
 y_pred_rf = np.expm1(rf_model.predict(X_test))
@@ -122,7 +143,27 @@ print(importance_rf.head(10))
 
 # ── 10. XGBoostRegressor ──────────────────────────────────────────────────────
 print("\n--- XGBoostRegressor 모델 학습 및 평가 ---")
+param_dist = {
+    'learning_rate': [0.01, 0.03, 0.05, 0.1],
+    'max_depth': [3, 4, 5, 6],
+    'n_estimators': [500, 800, 1000],
+    'subsample': [0.7, 0.8, 0.9],
+    'colsample_bytree': [0.7, 0.8, 0.9],
+    'min_child_weight': [1, 3, 5]
+}
 xgb_model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100, random_state=42)
+random_search = RandomizedSearchCV(
+    xgb_model,
+    param_distributions=param_dist,
+    n_iter=20,
+    cv=5,
+    scoring='neg_root_mean_squared_error',
+    n_jobs=-1,
+    random_state=42
+)
+random_search.fit(X_train, y_log_train)
+params = random_search.best_params_
+xgb_model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=params['n_estimators'], random_state=42, learning_rate=params['learning_rate'], max_depth=params['max_depth'], sumsample=params['subsample'], colsample_bytree=params['colsample_bytree'], min_child_weight=params['min_child_weight'])
 xgb_model.fit(X_train, y_log_train)
 
 y_pred_xgb = np.expm1(xgb_model.predict(X_test))
