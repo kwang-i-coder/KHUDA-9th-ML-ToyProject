@@ -1,9 +1,9 @@
 # KHUDA-9th-ML-ToyProject
 KHUDA 9기 ML 기초 세션 토이 프로젝트
 
-# main_Modify로 실행
+# !!main_Modify로 실행!! MainXX
 
-vscode 환경 실행시
+# vscode 환경 실행시
 
 # 1️⃣ 가상환경 생성
 python -m venv venv / py -m venv venv
