@@ -1,55 +1,47 @@
 import pandas as pd
 import numpy as np
+from main import get_result
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, mean_absolute_percentage_error
-import xgboost as xgb
 from rename import rename_map
 from sklearn.model_selection import RandomizedSearchCV
 from lightgbm import LGBMRegressor
 from sklearn.ensemble import StackingRegressor
 from sklearn.linear_model import Ridge
+import xgboost as xgb
 
+df = pd.read_csv('with_cctv_lamp_bus.csv', encoding='utf-8')
+df = df.drop(columns=['Unnamed: 0', '도로명', 'lat', 'lon', 'cluster', 'cluster_name', 'cluster_label', '보증금(만원)', '월세금(만원)', 'cctv_300m', 'cctv_1000m', 'lamp_300m', 'lamp_1000m', 'nearby_bus_count(100m)', 'nearby_bus_count(200m)', 'subway_count', 'subway_min_distance', '대중교통시간(분)', 'bank_min_distance', 'hospital_min_distance', 'pharmacy_min_distance', 'cafe_min_distance', 'restaurant_min_distance', 'mart_min_distance', 'parking_min_distance'], errors='ignore')
+df['Age'] = 2026 - df['건축년도']
+df = df.drop(columns=['건축년도'])
+df.rename(columns={'주택유형':'House_Type'}, inplace=True)
+df.rename(columns={'향':'Orientation'}, inplace=True)
 
-# ── 평가 함수 (y_orig_train을 인자로 명시적으로 받음) ──────────────────────────
-def get_result(y_orig_test, y_pred_orig, y_orig_train):
-    r2   = r2_score(y_orig_test, y_pred_orig)
-    rmse = np.sqrt(mean_squared_error(y_orig_test, y_pred_orig))
-    mape = mean_absolute_percentage_error(y_orig_test, y_pred_orig)
-    mae  = mean_absolute_error(y_orig_test, y_pred_orig)
-    mae_naive = mean_absolute_error(
-        y_orig_test,
-        np.full(len(y_orig_test), y_orig_train.mean())   # dtype 안전 처리
-    )
-    mase = mae / mae_naive
+# main에 있던 형식으로 변환
+# ── 3. 범주형 값 영문 변환 ────────────────────────────────────────────────────
+house_map = {'다가구': 'Multi_Family', '다세대': 'Multi_Unit',
+             '단독': 'Single_House', '연립': 'Row_House', '연립다세대': 'Villa'}
+ori_map   = {'남향': 'South', '동향': 'East', '서향': 'West', '북향': 'North',
+             '남동향': 'South_East', '남서향': 'South_West', 'Unknown': 'Unknown'}
+df['House_Type']  = df['House_Type'].map(house_map).fillna('Other_House')
+df['Orientation'] = df['Orientation'].map(ori_map).fillna('Other_Ori')
 
-    print("=== 로그 변환 후 원복 데이터(만원 단위) 평가 결과 ===")
-    print(f"1. R-Squared (결정계수)          : {r2:.4f}")
-    print(f"2. RMSE (평균 제곱근 오차)       : {rmse:.2f} 만원")
-    print(f"3. MAPE (평균 절대 백분율 오차)  : {mape*100:.2f}%")
-    print(f"4. MASE (평균 절대 척도 오차)    : {mase:.4f}")
-    print(f"5. MAE  (평균 절대 오차)         : {mae:.2f} 만원")
-    print("=" * 50)
+df = pd.get_dummies(df, columns=['House_Type', 'Orientation'], drop_first=False)
 
+commercial_cols = [
+    "cafe_count",
+    "restaurant_count",
+    "mart_count",
+    "pharmacy_count",
+    "convenience_store_count"
+]
 
-# ── 1. 데이터 로드 ─────────────────────────────────────────────────────────────
-try:
-    df = pd.read_csv('final_data.csv', encoding='utf-8')
-except Exception:
-    df = pd.read_csv('final_data.csv', encoding='cp949', errors='replace')
+df["commercial_index"] = df[commercial_cols].sum(axis=1)
+df = df.drop(columns=commercial_cols)
 
-df = df.rename(columns=rename_map)
-print("로드 완료:", df.shape)
+# 모든 시설들을 한데 모은 열을 만들고 cctv 데이터 놔둔 상태
+# 학습
 
-# 추가적인 feature engineering(gpt)
-df["Age_squared"] = df["House_Age"] ** 2
-df["New_House"] = (df["House_Age"] <= 5).astype(int)
-df["Old_House"] = (df["House_Age"] >= 20).astype(int)
-df["Jeonse_Villa"] = df["Rent_Type_Jeonse"] * df["House_Type_Villa"]
-df["Jeonse_Multi"] = df["Rent_Type_Jeonse"] * df["House_Type_Multi_Family"]
-df["Infra_density"] = df["Life_Infra_Score"] / df["Area_m2"]
-
-# ── 8. 학습/테스트 분리 ───────────────────────────────────────────────────────
 X      = df.drop(columns=['Price_Hwansan'])
 y_orig = df['Price_Hwansan']
 y_log  = np.log1p(y_orig)
@@ -167,9 +159,9 @@ stack_model = StackingRegressor(
 stack_model.fit(X_train, y_log_train)
 y_pred_stack = np.expm1(stack_model.predict(X_test))
 get_result(y_orig_test, y_pred_stack, y_orig_train)
-# importance_stacking = pd.Series(stack_model.feature_importances_, index=X.columns).sort_values(ascending=False)
-# print("\n[Stacking Top 10 Feature Importances]")
-# print(importance_stacking.head(10))
+importance_stacking = pd.Series(stack_model.feature_importances_, index=X.columns).sort_values(ascending=False)
+print("\n[Stacking Top 10 Feature Importances]")
+print(importance_stacking.head(10))
 
 print("\n최종 사용된 피처 리스트:")
 print(X.columns.tolist())
