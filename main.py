@@ -13,6 +13,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
 from sklearn.base import clone
 from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
 
 import xgboost as xgb
 import lightgbm as lgb
@@ -127,12 +128,18 @@ print(f"층 결측 수 (처리 후): {df['Floor'].isna().sum()}")
 
 # 파생 변수 생성 (vif, 상관관계 분석 근거로 파생변수 생성, 특성 더 잘 드러내기 위해서 price_per_m2(발))
 # 
+
+ss = StandardScaler()
+ss.fit(df[['School_Walk_Min']])
+df['School_Walk_Min_scaled']  = ss.transform(df[['School_Walk_Min']])
+ss.fit(df[['School_Walk_Dist']])
+df['School_Walk_Dist_scaled'] = ss.transform(df[['School_Walk_Dist']])
 df['Life_Infra_Score']  = df[['Conv_Count', 'Bank_Count', 'Hosp_Count', 'Cafe_Count', 'Rest_Count']].sum(axis=1)
 df['Safety_Score']      = df['CCTV_500m'].fillna(0) + df['Lamp_500m'].fillna(0)
 df['Transit_Score']     = df['Subway_Count'].fillna(0) + df['Bus_Count'].fillna(0) + df['Bus_200m'].fillna(0)
 df['Pharm_Parking_Sum'] = df['Pharm_Count'].fillna(0) + df['Parking_Count'].fillna(0)
-df['School_Access']     = (df['School_Walk_Min'].fillna(df['School_Walk_Min'].median()) +
-                           df['School_Walk_Dist'].fillna(df['School_Walk_Dist'].median()) / 100)
+df['School_Access']     = (df['School_Walk_Min_scaled'].fillna(df['School_Walk_Min_scaled'].median()) +
+                           df['School_Walk_Dist_scaled'].fillna(df['School_Walk_Dist_scaled'].median()) / 100)
 df['Is_Low_Floor']  = (df['Floor'] <= 2).astype(int)
 df['Is_High_Floor'] = (df['Floor'] >= 6).astype(int)
 print("파생 변수 생성 완료")
@@ -301,10 +308,6 @@ y_pred_rf_opt = np.expm1(rf_opt.predict(X_test))
 all_results.append(get_result('RandomForest (Optuna)', y_orig_test, y_pred_rf_opt, y_orig_train))
 feature_importances['RandomForest (Optuna)'] = pd.Series(rf_opt.feature_importances_, index=X.columns)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 스태킹 앙상블 (Optuna 튜닝 모델 3개 → Ridge 메타모델)
-# ══════════════════════════════════════════════════════════════════════════════
 print("\n--- Stacking 앙상블 ---")
 
 base_models = [xgb_opt, lgb_opt, rf_opt]
