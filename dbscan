@@ -1,0 +1,97 @@
+import pandas as pd
+import numpy as np
+import folium
+
+from sklearn.cluster import DBSCAN
+from sklearn.preprocessing import StandardScaler
+
+# ----------------------------
+# 1️⃣ 데이터 로딩
+# ----------------------------
+df = pd.read_csv("fixed.csv")
+
+coords = df[['lat', 'lon']].dropna().copy()
+X = coords.values
+
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# ----------------------------
+# 2️⃣ 1차 DBSCAN
+# ----------------------------
+db = DBSCAN(eps=0.3, min_samples=10)
+labels = db.fit_predict(X_scaled)
+
+coords["cluster"] = labels
+
+# ----------------------------
+# 3️⃣ 큰 군집 찾기
+# ----------------------------
+cluster_sizes = coords["cluster"].value_counts()
+
+BIG_THRESHOLD = 15  # 🔥 크기 기준 (조절 가능)
+
+new_cluster_id = coords["cluster"].max() + 1
+
+for cluster_id, size in cluster_sizes.items():
+
+    if cluster_id == -1:
+        continue
+
+    if size > BIG_THRESHOLD:
+
+        mask = coords["cluster"] == cluster_id
+        sub_X = X_scaled[mask]
+
+        # 재 DBSCAN (더 촘촘하게)
+        sub_db = DBSCAN(eps=0.15, min_samples=5)
+        sub_labels = sub_db.fit_predict(sub_X)
+
+        for i, idx in enumerate(coords[mask].index):
+            if sub_labels[i] == -1:
+                coords.at[idx, "cluster"] = -1
+            else:
+                coords.at[idx, "cluster"] = new_cluster_id + sub_labels[i]
+
+        new_cluster_id += sub_labels.max() + 1
+
+manual_outliers = [39, 9, 38]
+
+coords.loc[coords["cluster"].isin(manual_outliers), "cluster"] = -1
+
+
+# ----------------------------
+# 4️⃣ 지도 생성
+# ----------------------------
+center_lat = coords["lat"].mean()
+center_lon = coords["lon"].mean()
+
+m = folium.Map(location=[center_lat, center_lon], zoom_start=14)
+
+colors = [
+    "red", "blue", "green", "purple", "orange",
+    "darkred", "lightred", "beige", "darkblue",
+    "darkgreen", "cadetblue", "darkpurple"
+]
+
+for _, row in coords.iterrows():
+
+    cluster = int(row["cluster"])
+
+    if cluster == -1:
+        color = "gray"
+    else:
+        color = colors[cluster % len(colors)]
+
+    folium.CircleMarker(
+        location=[row["lat"], row["lon"]],
+        radius=4,
+        color=color,
+        fill=True,
+        fill_opacity=0.8,
+        popup=f"Cluster: {cluster}"
+    ).add_to(m)
+
+m.save("dbscan_recursive_map.html")
+
+print("✅ 재클러스터링 지도 생성 완료!")
